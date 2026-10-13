@@ -1,9 +1,9 @@
 # Assignment 1 Report
 
-- **Name**: _TODO_
-- **Student ID**: _TODO_
+- **Name**: Gonzalo Mir García
+- **Student ID**: 20107
 - **Email**: gmir.ieu2022@student.ie.edu
-- **Group**: _TODO_ [BBADBA 5A | BBADBA 5B | PPLEDBA 5A | BDBA 3A]
+- **Group**: BBADBA 5B 
 
 All numbers below are produced by `uv run python main.py train` (printed to the
 console and saved in `artifacts/metrics.json` and `artifacts/ablation.csv`).
@@ -264,10 +264,5 @@ there being a group of genuinely poor prospects in the list.
 
 ## Generative AI use disclosure
 
-_TODO (student): review and adjust this section so it accurately reflects your
-own process before submitting._
-
-I used Claude Code (Anthropic) as a coding assistant for this assignment. It
-wrote most of the code (`pipeline.py`, `models.py`, `train.py`, `app.py`),
-ran the exploratory analyses and ablations, and drafted this report's text.
-I reviewed every decision and number and can explain each one.
+I used claude code as an assistant, which helped me to write the code in pipeline.py, models.py, train.py and app.py, solved code errors and also helped me to ran the exploratory analysis and the feature ablations.
+I was understanding every decision taken and the numbers used.
