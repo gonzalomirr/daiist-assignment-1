@@ -264,5 +264,5 @@ there being a group of genuinely poor prospects in the list.
 
 ## Generative AI use disclosure
 
-I used claude code as an assistant, which helped me to write the code in pipeline.py, models.py, train.py and app.py, solved code errors and also helped me to ran the exploratory analysis and the feature ablations.
+I used claude code as an assistant, which helped me to write the code in pipeline.py, models.py, train.py and app.py, solved code errors and also helped me to ran the exploratory analysis and the feature ablations. I also use it to revise this report.
 I was understanding every decision taken and the numbers used.
