@@ -5,7 +5,8 @@ Assignment 2: training pipeline (hard-hat compliance at a site turnstile).
 
 Start to finish, no manual steps:
 
-1. Download the dataset version from Roboflow Universe (key via api_key.py).
+1. Download the dataset version from Roboflow Universe (key via api_key.py),
+   and carve a validation split out of train by source image (v1 has none).
 2. Describe it: images and instances per class per split, object size
    relative to the image.
 3. Finetune yolo11n from the COCO checkpoint. Best weights -> weights/best.pt.
@@ -55,7 +56,13 @@ CONFIG = {
     "imgsz": int(os.environ.get("IMGSZ", "640")),
     "batch": int(os.environ.get("BATCH", "16")),
     "patience": int(os.environ.get("PATIENCE", "10")),
+    # Last epochs without mosaic (Ultralytics default 10, too many for a short run).
+    "close_mosaic": int(os.environ.get("CLOSE_MOSAIC", "10")),
     "seed": 0,
+    "workers": int(os.environ.get("WORKERS", "8")),
+    "fraction": float(os.environ.get("FRACTION", "1.0")),
+    # v1 has no validation split: this share of train source images becomes one.
+    "val_share": 0.15,
     # Detections kept for the image-level score; thresholds are swept above it.
     "score_conf_floor": 0.01,
 }
@@ -83,6 +90,55 @@ def download_dataset() -> Path:
 
 def split_dirs(root: Path, split: str) -> tuple[Path, Path]:
     return root / split / "images", root / split / "labels"
+
+
+def source_id(image: Path) -> str:
+    """Roboflow names each copy '<source>_jpg.rf.<hash>.jpg'; copies of one
+    source image share everything before '.rf.'."""
+    return image.name.split(".rf.")[0]
+
+
+def prepare_splits(raw: Path) -> Path:
+    """Version 1 ships train and test only, and every train image comes in up
+    to 2 horizontally flipped copies (Roboflow's augmentation). Build a working
+    copy (symlinks) with:
+
+    - valid: VAL_SHARE of the train *source* images, so no flipped twin of a
+      validation image is in train (that would leak);
+    - one copy per source image in train and valid, since Ultralytics already
+      flips at random during training and twin copies only double epoch time;
+    - test untouched (one copy per source already).
+    """
+    if (raw / "valid" / "images").exists():
+        return raw
+    out = DATASETS / f"{raw.name}-split"
+    if (out / "data.yaml").exists():
+        return out
+    groups: dict[str, list[Path]] = {}
+    for img in list_images(raw, "train"):
+        groups.setdefault(source_id(img), []).append(img)
+    ids = sorted(groups)
+    rng = np.random.default_rng(CONFIG["seed"])
+    val_ids = set(rng.choice(ids, size=round(CONFIG["val_share"] * len(ids)), replace=False))
+    if out.exists():
+        shutil.rmtree(out)
+    for split in SPLITS:
+        for d in split_dirs(out, split):
+            d.mkdir(parents=True)
+    for sid in ids:
+        img = sorted(groups[sid])[0]
+        split = "valid" if sid in val_ids else "train"
+        img_dir, lab_dir = split_dirs(out, split)
+        (img_dir / img.name).symlink_to(img)
+        lab = split_dirs(raw, "train")[1] / f"{img.stem}.txt"
+        if lab.exists():
+            (lab_dir / lab.name).symlink_to(lab)
+    for src, dst in zip(split_dirs(raw, "test"), split_dirs(out, "test")):
+        for f in src.iterdir():
+            (dst / f.name).symlink_to(f)
+    shutil.copy(raw / "data.yaml", out / "data.yaml")
+    print(f"Built {out}: {len(ids) - len(val_ids)} train / {len(val_ids)} valid source images")
+    return out
 
 
 def write_data_yaml(root: Path) -> tuple[Path, list[str]]:
@@ -172,6 +228,8 @@ def finetune(data_yaml: Path) -> Path:
     model.train(
         data=str(data_yaml), epochs=CONFIG["epochs"], imgsz=CONFIG["imgsz"],
         batch=CONFIG["batch"], patience=CONFIG["patience"], seed=CONFIG["seed"],
+        workers=CONFIG["workers"], fraction=CONFIG["fraction"],
+        close_mosaic=CONFIG["close_mosaic"],
         deterministic=True, project=str(RUNS), name="finetune", exist_ok=True,
         plots=True, verbose=False,
     )
@@ -315,7 +373,7 @@ def main() -> None:
     ARTIFACTS.mkdir(exist_ok=True)
     cm = D.CostModel()
 
-    root = download_dataset()
+    root = prepare_splits(download_dataset())
     data_yaml, names = write_data_yaml(root)
     lower = [n.lower() for n in names]
     if D.POSITIVE_CLASS not in lower:
