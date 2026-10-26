@@ -1,0 +1,316 @@
+{
+  "config": {
+    "workspace": "robertatroc-7xoey",
+    "project": "hard-hat-workers-dataset-hnvfo",
+    "version": 1,
+    "model": "yolo11n.pt",
+    "epochs": 20,
+    "imgsz": 480,
+    "batch": 16,
+    "patience": 10,
+    "close_mosaic": 5,
+    "seed": 0,
+    "workers": 4,
+    "fraction": 1.0,
+    "val_share": 0.15,
+    "score_conf_floor": 0.01
+  },
+  "classes": [
+    "head",
+    "helmet",
+    "person"
+  ],
+  "positive_class": "head",
+  "dataset": {
+    "train": {
+      "images": 4479,
+      "instances": {
+        "head": 4237,
+        "helmet": 12601,
+        "person": 393
+      },
+      "images_containing": {
+        "head": 825,
+        "helmet": 4095,
+        "person": 139
+      },
+      "images_without_labels": 0,
+      "image_level_violation_rate": 0.1841929002009377
+    },
+    "valid": {
+      "images": 790,
+      "instances": {
+        "head": 637,
+        "helmet": 2283,
+        "person": 80
+      },
+      "images_containing": {
+        "head": 143,
+        "helmet": 737,
+        "person": 25
+      },
+      "images_without_labels": 0,
+      "image_level_violation_rate": 0.1810126582278481
+    },
+    "test": {
+      "images": 1766,
+      "instances": {
+        "head": 1803,
+        "helmet": 4863,
+        "person": 142
+      },
+      "images_containing": {
+        "head": 339,
+        "helmet": 1604,
+        "person": 45
+      },
+      "images_without_labels": 0,
+      "image_level_violation_rate": 0.19195922989807473
+    },
+    "object_size": {
+      "head": {
+        "median_rel_area_pct": 0.6015625,
+        "p10_rel_area_pct": 0.2197265625,
+        "p90_rel_area_pct": 1.963525390625001,
+        "share_small_lt_0.25pct": 0.13853527033098698
+      },
+      "helmet": {
+        "median_rel_area_pct": 0.82916259765625,
+        "p10_rel_area_pct": 0.2225830078125,
+        "p90_rel_area_pct": 4.8577880859375,
+        "share_small_lt_0.25pct": 0.12624702486453637
+      },
+      "person": {
+        "median_rel_area_pct": 7.843139648437498,
+        "p10_rel_area_pct": 1.5425781249999997,
+        "p90_rel_area_pct": 33.32034912109376,
+        "share_small_lt_0.25pct": 0.0032520325203252032
+      }
+    }
+  },
+  "detection": {
+    "map50": 0.6569570339451483,
+    "map50_95": 0.44576325892571844,
+    "precision": 0.9616379380817056,
+    "recall": 0.6214050186333311,
+    "per_class": {
+      "head": {
+        "precision": 0.9338170836108243,
+        "recall": 0.9312518644543835,
+        "ap50": 0.9670071219507772,
+        "ap50_95": 0.6558251792587433
+      },
+      "helmet": {
+        "precision": 0.9510967306342922,
+        "recall": 0.9329631914456097,
+        "ap50": 0.9769658468281505,
+        "ap50_95": 0.6674502683737124
+      },
+      "person": {
+        "precision": 1.0,
+        "recall": 0.0,
+        "ap50": 0.026898133056517042,
+        "ap50_95": 0.014014329144699637
+      }
+    },
+    "confusion_matrix": [
+      [
+        1761,
+        17,
+        0,
+        8030
+      ],
+      [
+        34,
+        4829,
+        3,
+        20166
+      ],
+      [
+        0,
+        2,
+        126,
+        18230
+      ],
+      [
+        8,
+        15,
+        13,
+        0
+      ]
+    ],
+    "confusion_labels": [
+      "head",
+      "helmet",
+      "person",
+      "background"
+    ]
+  },
+  "detection_baselines": [
+    {
+      "model": "finetuned yolo11n",
+      "mAP50": 0.6569570339451483,
+      "mAP50-95": 0.44576325892571844
+    },
+    {
+      "model": "COCO yolo11n zero-shot",
+      "mAP50": 0.0,
+      "mAP50-95": 0.0
+    },
+    {
+      "model": "predict nothing",
+      "mAP50": 0.0,
+      "mAP50-95": 0.0
+    }
+  ],
+  "image_level_baselines": [
+    {
+      "policy": "finetuned yolo11n",
+      "threshold_from_val": 0.12,
+      "test_roc_auc": 0.970290623520681,
+      "test_accuracy": 0.9575311438278595,
+      "test_precision": 0.8567567567567568,
+      "test_recall": 0.9351032448377581,
+      "TP": 317,
+      "FN": 22,
+      "FP": 53,
+      "TN": 1374,
+      "test_cost_per_1000": 222.36299309771724
+    },
+    {
+      "policy": "COCO yolo11n zero-shot (person => flag)",
+      "threshold_from_val": 0.82,
+      "test_roc_auc": 0.6258359121287103,
+      "test_accuracy": 0.4909399773499434,
+      "test_precision": 0.23782771535580524,
+      "test_recall": 0.7492625368731564,
+      "TP": 254,
+      "FN": 85,
+      "FP": 814,
+      "TN": 613,
+      "test_cost_per_1000": 1644.4169028409126
+    },
+    {
+      "policy": "majority class (compliant)",
+      "threshold_from_val": 0.0,
+      "test_roc_auc": 0.5,
+      "test_accuracy": 0.8080407701019252,
+      "test_precision": 0.0,
+      "test_recall": 0.0,
+      "TP": 0,
+      "FN": 339,
+      "FP": 0,
+      "TN": 1427,
+      "test_cost_per_1000": 2100.0
+    },
+    {
+      "policy": "predict nothing (always pass)",
+      "threshold_from_val": 0.0,
+      "test_roc_auc": 0.5,
+      "test_accuracy": 0.8080407701019252,
+      "test_precision": 0.0,
+      "test_recall": 0.0,
+      "TP": 0,
+      "FN": 339,
+      "FP": 0,
+      "TN": 1427,
+      "test_cost_per_1000": 2100.0
+    }
+  ],
+  "cost_model": {
+    "c_fn": 70.0,
+    "c_fp": 2.0,
+    "c_tp": 0.5,
+    "c_tn": 0.0,
+    "c_review": 0.25,
+    "review_miss": 0.05,
+    "base_rate": 0.03,
+    "entries_per_day": 1200,
+    "peak_share": 0.5,
+    "review_seconds": 10.0
+  },
+  "operating_point": {
+    "single_threshold": 0.12,
+    "t_low": 0.04,
+    "t_high": 0.7,
+    "single_test": {
+      "pos_fail": 0.9351032448377581,
+      "pos_review": 0.0,
+      "pos_pass": 0.06489675516224189,
+      "neg_fail": 0.03714085494043448,
+      "neg_review": 0.0,
+      "neg_pass": 0.9628591450595655,
+      "cost_per_1000": 222.36299309771724,
+      "review_share": 0.0,
+      "reviews_per_day": 0.0,
+      "peak_hour_reviews": 0.0,
+      "guards_needed_peak": 0.0,
+      "missed_violations_per_1000": 1.9469026548672566,
+      "false_stops_per_1000": 36.02662929222144,
+      "t_low": 0.12,
+      "t_high": 0.12,
+      "counts": {
+        "pos_fail": 317,
+        "pos_review": 0,
+        "pos_pass": 22,
+        "neg_fail": 53,
+        "neg_review": 0,
+        "neg_pass": 1374
+      }
+    },
+    "band_test": {
+      "pos_fail": 0.8053097345132744,
+      "pos_review": 0.14454277286135694,
+      "pos_pass": 0.05014749262536873,
+      "neg_fail": 0.007708479327259986,
+      "neg_review": 0.053258584442887176,
+      "neg_pass": 0.9390329362298528,
+      "cost_per_1000": 163.57983361343494,
+      "review_share": 0.05599711009544127,
+      "reviews_per_day": 67.19653211452952,
+      "peak_hour_reviews": 33.59826605726476,
+      "guards_needed_peak": 0.09332851682573544,
+      "missed_violations_per_1000": 1.7212389380530975,
+      "false_stops_per_1000": 7.477224947442187,
+      "t_low": 0.04,
+      "t_high": 0.7,
+      "counts": {
+        "pos_fail": 273,
+        "pos_review": 49,
+        "pos_pass": 17,
+        "neg_fail": 11,
+        "neg_review": 76,
+        "neg_pass": 1340
+      }
+    },
+    "band_valid": {
+      "pos_fail": 0.7272727272727273,
+      "pos_review": 0.2097902097902098,
+      "pos_pass": 0.06293706293706294,
+      "neg_fail": 0.013910355486862442,
+      "neg_review": 0.0571870170015456,
+      "neg_pass": 0.9289026275115919,
+      "cost_per_1000": 210.5217734352201,
+      "review_share": 0.061765112785205516,
+      "reviews_per_day": 74.11813534224662,
+      "peak_hour_reviews": 37.05906767112331,
+      "guards_needed_peak": 0.10294185464200918,
+      "missed_violations_per_1000": 2.2027972027972034,
+      "false_stops_per_1000": 13.493044822256568,
+      "t_low": 0.04,
+      "t_high": 0.7,
+      "counts": {
+        "pos_fail": 104,
+        "pos_review": 30,
+        "pos_pass": 9,
+        "neg_fail": 9,
+        "neg_review": 37,
+        "neg_pass": 601
+      }
+    }
+  },
+  "reference_policies": {
+    "do_nothing": 2100.0,
+    "human_checks_all": 369.24999999999994
+  }
+}

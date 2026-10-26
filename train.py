@@ -20,7 +20,8 @@ Start to finish, no manual steps:
 6. Save everything app.py needs into artifacts/ (small, committed).
 
 Settings can be overridden with environment variables (see CONFIG below),
-e.g. EPOCHS=5 for a quick run. DATASET_DIR points at an already-downloaded
+e.g. EPOCHS=5 for a quick run. REUSE_WEIGHTS=1 skips the finetune and
+re-runs steps 4-6 on the existing weights/best.pt. DATASET_DIR points at an already-downloaded
 YOLO-format export and skips the download.
 """
 
@@ -276,10 +277,12 @@ def image_scores(weights: Path, root: Path, split: str, names: list[str], pos_id
     images = list_images(root, split)
     coco_person = [k for k, v in coco.names.items() if v == "person"][0]
     rows = []
-    kw = dict(conf=CONFIG["score_conf_floor"], imgsz=CONFIG["imgsz"], verbose=False, stream=True)
-    ft_iter = model.predict([str(p) for p in images], **kw)
-    coco_iter = coco.predict([str(p) for p in images], classes=[coco_person], **kw)
-    for img, r, rc in zip(images, ft_iter, coco_iter):
+    kw = dict(conf=CONFIG["score_conf_floor"], imgsz=CONFIG["imgsz"], verbose=False)
+    # One image per call: predicting on the whole list at once ran out of
+    # memory on a 16 GB CPU machine.
+    for img in images:
+        r = model.predict(str(img), **kw)[0]
+        rc = coco.predict(str(img), classes=[coco_person], **kw)[0]
         lab = read_labels(root, split, img)
         cls = r.boxes.cls.cpu().numpy().astype(int)
         conf = r.boxes.conf.cpu().numpy()
@@ -384,7 +387,11 @@ def main() -> None:
     stats = describe_dataset(root, names, pos_idx)
     print(json.dumps(stats, indent=2))
 
-    weights = finetune(data_yaml)
+    weights = WEIGHTS / "best.pt"
+    if os.environ.get("REUSE_WEIGHTS") == "1" and weights.exists():
+        print(f"REUSE_WEIGHTS=1: skipping the finetune, evaluating {weights}")
+    else:
+        weights = finetune(data_yaml)
     det = detection_eval(weights, data_yaml, names)
 
     coco = YOLO("yolo11n.pt")   # pretrained COCO, never finetuned

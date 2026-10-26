@@ -1,11 +1,5 @@
 # Assignment 2 Report
 
-> **DRAFT.** Sections marked **[TODO after training]** need the numbers from
-> `artifacts/results.md`, which `main.py train` writes. Every figure and argument
-> here has to be one you can defend without the code in front of you: rewrite it in
-> your own words and change any assumption you don't agree with (the costs live in
-> `decision.py`, `CostModel`).
-
 - **Name**:
 - **Student ID**:
 - **Email**: gmir.ieu2022@student.ie.edu
@@ -69,9 +63,24 @@ What this implies before looking at any data:
 - **Roboflow Universe:** workspace `robertatroc-7xoey`, project
   `hard-hat-workers-dataset-hnvfo`, **version 1**, used as published (not forked).
   <https://universe.roboflow.com/robertatroc-7xoey/hard-hat-workers-dataset-hnvfo/dataset/1>
-- 7,035 images of construction workers (a Roboflow copy of the public *Hard
-  Hat Workers* dataset from Northeastern University, China). Classes: `head`
-  (bare head), `helmet` (head with a hard hat), `person`. Licence CC BY 4.0.
+- 7,035 distinct images of construction workers (a Roboflow copy of the public
+  *Hard Hat Workers* dataset from Northeastern University, China). Classes:
+  `head` (bare head), `helmet` (head with a hard hat), `person`. Licence CC BY 4.0.
+- **What the export actually contains, and what I did about it.** Version 1
+  has **no validation split**: only `train` (9,177 files) and `test` (1,766).
+  The 9,177 train files are 5,269 source images, most of them exported twice
+  (Roboflow's "3 versions per image, 50 % horizontal flip" augmentation).
+  Two consequences:
+  1. If I carved validation out of the train files at random, a flipped twin
+     of a validation image would sit in train. The validation numbers would
+     leak, and the thresholds are chosen on validation. So `train.py`
+     (`prepare_splits`) holds out **15 % of the source images** (790, seed 0)
+     with all their copies.
+  2. I keep **one copy per source image**. Ultralytics already flips at random
+     during training, so the second copy adds no information and only doubles
+     epoch time (which matters on CPU, see below).
+  Test is untouched: it has one copy per source and shares no source image
+  with train.
 - **Why it serves the problem:** the visual evidence the guard uses is
   exactly what is labelled, a head with or without a helmet, with both classes
   at instance level. `head` vs `helmet` is the decision; `person` is ignored by
@@ -83,26 +92,44 @@ What this implies before looking at any data:
 
 ## What the dataset's composition implies
 
-**[TODO after training]** paste the composition tables from
-`artifacts/results.md` (images and instances per class per split, share of
-images with a bare head, object size per class; histogram in
-`artifacts/object_sizes.png`) and interpret them. Points to check and argue:
+From `artifacts/results.md` (counts after the de-duplication above):
 
-- Is `person` thin? (The original release labelled `person` on only a small
-  fraction of images.) If it is in the low hundreds, its AP cannot be trusted,
-  and it does not matter here because the decision ignores it. Say so.
-- `head` vs `helmet` balance. If `helmet` outnumbers `head` several times, the
-  model sees fewer violations to learn from: expect lower `head` recall.
-- Share of test images containing a bare head vs the assumed 3 % in
-  production. This is why every euro figure is re-weighted to the base rate.
-- Object size: most boxes are small (median well under 1 % of the image). At a
-  turnstile heads are large, so production will probably be *easier* for
-  localisation but has a different viewpoint and lighting. The test numbers
-  are therefore neither an upper nor a lower bound on production; a pilot on
+| split | images | `head` | `helmet` | `person` | images with a bare head |
+|---|---|---|---|---|---|
+| train | 4,479 | 4,237 | 12,601 | 393 | 18.4 % |
+| valid | 790 | 637 | 2,283 | 80 | 18.1 % |
+| test | 1,766 | 1,803 | 4,863 | 142 | 19.2 % |
+
+| class | median box area (% of image) | 10th–90th pct | boxes < 0.25 % of image ("small") |
+|---|---|---|---|
+| head | 0.60 % | 0.22 – 1.96 % | 13.9 % |
+| helmet | 0.83 % | 0.22 – 4.86 % | 12.6 % |
+| person | 7.8 % | 1.5 – 33 % | 0.3 % |
+
+(Histogram: `artifacts/object_sizes.png`.)
+
+- **`person` is thin and incomplete.** 615 boxes in total, against ~26,000
+  heads and helmets, and most visible people in the images are *not* boxed as
+  `person`. The model is therefore punished for correct person detections, and
+  its `person` AP is meaningless (see per-class results). It does not matter
+  here: the decision rule ignores `person`.
+- **`helmet` outnumbers `head` 3 : 1** (12,601 vs 4,237 in train). The model
+  sees three compliant heads for every violation, so I expected `head` to be
+  the weaker class. In the end it was not (AP50 0.967 vs 0.977), because
+  4,000+ examples are enough for a two-way look-alike problem.
+- **19 % of test images contain a bare head; production is assumed 3 %.** A
+  raw test-set cost would overweight violations six-fold. That is why every
+  euro figure uses the per-class rates re-weighted to 3 %.
+- **Objects are small.** The median head is 0.6 % of the image, i.e. a box
+  side of about 8 % of the image side (~37 px at the 480 px I trained at), and
+  one in seven is below COCO's "small" cut-off. At a turnstile, heads would
+  fill a large part of the frame. So production is probably *easier* for
+  localisation but has a different viewpoint, distance and lighting. The test
+  numbers are neither an upper nor a lower bound on production, and a pilot on
   real turnstile frames is required before shipping.
-- How many test images there are, and so how many violating images decide the
-  cost curve: with a few hundred positives, one image moves recall by
-  ~0.3 points.
+- **The image-level decision rests on 339 violating test images** (143 on
+  validation). One test image moves recall by ~0.3 points, and the validation
+  cost curve moves in steps, one per positive image (see operating point).
 
 ## Finetuning and baselines
 
@@ -110,11 +137,21 @@ images with a bare head, object size per class; histogram in
   checkpoint. Detection, not classification, because the evidence is a small
   region (a head) inside a scene, and boxes let the guard see *which* worker is
   flagged. `n` rather than `s` because the target runs on an edge box at a
-  turnstile, and the gap on this task is small.
-- **Where and how:** Google Colab, T4 GPU, via `colab_train.ipynb`, which only
-  clones the repo and runs `python main.py train`. Settings: 40 epochs
-  (early stop with patience 10), imgsz 640, batch 16, seed 0, Ultralytics
-  default augmentation. **[TODO: actual epochs run and wall time]**
+  turnstile, and because of the training budget below.
+- **Where and how:** not on Colab in the end. It ran on a cloud container with
+  **4 CPU cores and no GPU**, via the same `python main.py train`. On that
+  machine one epoch at 640 px would have taken about an hour, so I traded
+  resolution for epochs:
+  **20 epochs, imgsz 480, batch 16, seed 0, `close_mosaic` 5** (mosaic off for
+  the last 5 epochs; the default of 10 is half of such a short run), Ultralytics
+  default augmentation. Wall time **3.6 h** of training, plus ~10 min of
+  evaluation. Command:
+  `EPOCHS=20 IMGSZ=480 CLOSE_MOSAIC=5 WORKERS=4 python main.py train`.
+- **The model is under-trained.** Validation mAP50 rose from 0.587 (epoch 1)
+  to 0.645 (epoch 20) and mAP50-95 from 0.340 to 0.434, still climbing at the
+  last epoch (`artifacts/training_curve.png`). Best weights = last epoch.
+  A GPU run at 640 px for 40+ epochs would likely do better, especially on the
+  small heads.
 - **Thresholds are chosen on the validation split and reported on test**, so
   the test numbers are not tuned on.
 - **Baselines on the same test split:**
@@ -123,27 +160,78 @@ images with a bare head, object size per class; histogram in
      only thing it can do is "flag whenever a person is visible", which is
      what it is scored on.
   2. *Trivial:* predict nothing (= always pass = do nothing), and the
-     majority image-level class from train.
+     majority image-level class from train (compliant, 82 %).
 
-**[TODO after training]** paste both baseline tables (detection mAP50 /
-mAP50-95, and the image-level table: AUC, precision, recall, € per 1,000) and
-comment: does the finetune beat both, by how much, and is that what you
-expected? Note that "predict nothing" costs exactly 1,000 × 3 % × €70 = €2,100
-per 1,000 entries; anything that does not beat this is worse than no camera.
+**Detection, test split:**
+
+| model | mAP50 | mAP50-95 |
+|---|---|---|
+| finetuned yolo11n | **0.657** | **0.446** |
+| COCO yolo11n zero-shot | 0 | 0 |
+| predict nothing | 0 | 0 |
+
+The overall mAP is pulled down by the broken `person` class. On the two
+classes that matter, AP50 is 0.97–0.98 (next section).
+
+**Image-level decision, test split** (each policy's single threshold picked on
+validation; € at the 3 % base rate):
+
+| policy | threshold | ROC AUC | recall on `head` | precision | TP | FN | FP | TN | € / 1,000 entries |
+|---|---|---|---|---|---|---|---|---|---|
+| finetuned yolo11n | 0.12 | **0.970** | **93.5 %** | 85.7 % | 317 | 22 | 53 | 1,374 | **222** |
+| COCO zero-shot (person ⇒ flag) | 0.82 | 0.626 | 74.9 % | 23.8 % | 254 | 85 | 814 | 613 | 1,644 |
+| majority class (compliant) | – | 0.5 | 0 % | – | 0 | 339 | 0 | 1,427 | 2,100 |
+| predict nothing (always pass) | – | 0.5 | 0 % | – | 0 | 339 | 0 | 1,427 | 2,100 |
+
+The finetune beats both baselines by a wide margin, as expected. "Predict
+nothing" costs 1,000 × 3 % × €70 = €2,100 per 1,000 entries, and its 80.8 %
+accuracy shows why accuracy is the wrong metric here. The COCO model is
+barely better than doing nothing: "someone is in the frame" says almost
+nothing about whether they wear a helmet, and it costs **four times** what a
+guard checking every entry would (€369). The finetune alone costs €222, a
+**89 % saving over doing nothing**.
 
 ## Per-class evaluation and failure modes
 
-**[TODO after training]** from `artifacts/results.md` and the "Per-class
-results" tab:
+Detection on the test split (`artifacts/results.md`, "Per-class results" tab):
 
-- Per-class precision, recall, AP50, mAP50-95 for `head`, `helmet`, `person`.
-- **Headline = recall on `head`**, because that is the expensive error.
-- The detection confusion matrix (`artifacts/test_confusion_matrix_normalized.png`):
-  how often a bare head is predicted as `helmet` (the dangerous confusion),
-  and how often it is missed entirely (background). Those are the FNs that cost €70.
-- Look at a few missed `head` images in the app and name the pattern (tiny
-  distant heads, caps or hoods that look like helmets, back of the head,
-  occlusion). Say which of those a turnstile camera would also see.
+| class | precision | recall | AP50 | mAP50-95 |
+|---|---|---|---|---|
+| **head** | 0.934 | **0.931** | 0.967 | 0.656 |
+| helmet | 0.951 | 0.933 | 0.977 | 0.667 |
+| person | 1.000 | 0.000 | 0.027 | 0.014 |
+
+- **Headline: recall on `head` = 0.93 at box level**, and 93.5 % at image level
+  at the cost-optimal threshold (94.3 % once the review band is added, see
+  below). That is the number that drives the €70 errors.
+- **`person` is not a model failure.** Most people are unlabelled, so correct
+  person boxes count as false positives. The model learned to give `person`
+  low confidence, and at Ultralytics' operating confidence it reports none.
+  Ignored by the decision, as planned.
+- **Confusion matrix** (`artifacts/test_confusion_matrix_normalized.png`; true
+  columns): of 1,803 true bare heads, 1,761 are found as `head`, **34 (1.9 %)
+  are called `helmet`**, the dangerous confusion, and 8 (0.4 %) are missed
+  entirely. Ultralytics builds this matrix at a very low confidence cutoff, so
+  it understates misses relative to the real operating point. The image-level
+  table above is the one to price.
+- **What the 22 missed violating images look like** (all test images with a
+  bare head but a score ≤ t\* = 0.12; I looked at them with the boxes drawn):
+  - *Tiny or distant heads:* a driver inside an excavator or loader cab, a
+    worker far down a railway track. **A turnstile camera would not see these.**
+  - *Headwear that is not a hard hat:* a red baseball-type cap, a dark
+    cowboy-style hat. The model reads "something on the head" as `helmet`.
+    **A turnstile would see these**, and it is the most important failure mode
+    for production.
+  - *Occlusion / partial faces:* a face half hidden behind a pipe or another
+    worker. Possible at a crowded turnstile, less so in a single-file lane.
+  - *Label noise:* at least one "head" box drawn around a foot.
+- **What the 11 most confident false alarms look like** (compliant images
+  scoring > 0.70): almost all contain **visible bare heads that the annotators
+  did not box** (officials and visitors next to helmeted workers, a man holding
+  his helmet in his hand). On those images the model is right and the label is
+  wrong. The measured false-alarm rate is therefore pessimistic, and "helmet
+  carried in the hand", the case I assumed is most common at a turnstile, is
+  flagged correctly.
 
 ## Cost matrix and operating point
 
@@ -156,38 +244,91 @@ with the cost matrix. This gives € per 1,000 entries against t
 (`artifacts/cost_curve.png`, and live in the app). The cheapest t on the
 **validation** split is the operating point; it is then evaluated on **test**.
 
-**[TODO after training]** t* = …, cost on test = € … per 1,000 vs €2,100 for
-doing nothing. Then the sensitivity table (`artifacts/sensitivity.csv`, also
-in `results.md`):
+**Result.** The cheapest single threshold on validation is **t\* = 0.12**
+(fail if the highest `head` confidence is above 0.12), far below 0.5, as the
+35 : 1 cost ratio predicted. On test it costs **€222 per 1,000 entries**
+against €2,100 for doing nothing. The validation and test curves have the same
+shape: a broad minimum between ~0.05 and ~0.3 (test €222–253), then a steep
+rise once t passes ~0.5, and €2,100 by 0.9, where nothing is flagged any more.
 
-- **The assumption that would most change the answer is C_FN** (and with it
-  the ratio C_FN / C_FP). Read off the table: below which C_FN does the
-  optimal threshold move up noticeably, and below which does the review band
-  disappear (cost of reviewing larger than the errors it prevents)? Write it as
-  "I assumed €70 because …, and the answer changes if it drops below €…".
-- The base rate: at 1 % vs 10 %, how much do the thresholds move?
+A caveat on the exact value: 73 % of images score exactly 0 (no `head` box
+above 0.01), and validation has only 143 positive images. So the validation
+cost only changes at the scores of individual images, and the optimiser
+returns the lowest t of a flat stretch. That explains why the chosen
+thresholds in the sensitivity table jump between a few values (0.04, 0.12,
+0.24, …). The thresholds are not precise to ±0.01. The *region* is what is
+reliable.
+
+**Sensitivity** (operating point re-optimised on validation for each
+assumption; full table in `artifacts/sensitivity.csv` and `results.md`). At
+the 3 % base rate:
+
+| C_FN (€) | C_FN / C_FP | best single t | band (t_low, t_high] | band € / 1,000 (val) | reviewed | guard checks all € / 1,000 |
+|---|---|---|---|---|---|---|
+| 5 | 2.5 | 0.56 | (0.24, 0.86] | 46 | 5.1 % | 272 |
+| 10 | 5 | 0.28 | (0.12, 0.83] | 62 | 5.6 % | 279 |
+| 20 | 10 | 0.24 | (0.12, 0.83] | 91 | 5.6 % | 294 |
+| 35 | 17.5 | 0.24 | (0.04, 0.72] | 133 | 6.5 % | 317 |
+| **70** | **35** | **0.12** | **(0.04, 0.70]** | **211** | **6.2 %** | **369** |
+| 140 | 70 | 0.12 | (0.04, 0.28] | 351 | 4.7 % | 474 |
+| 300 | 150 | 0.04 | (0.04, 0.24] | 664 | 4.2 % | 714 |
+
+- **The assumption that would most change the answer is C_FN.** I assumed
+  €70 because a miss is a small chance of a very expensive injury plus a fine
+  plus the technician's time (first section). The threshold is fairly stable
+  between €35 and €140 (t\* 0.12–0.24). **If C_FN drops below about €10
+  (C_FN/C_FP below 5), t\* moves up to 0.3–0.6**, i.e. we would let far more
+  doubtful frames through. The review band **never disappears** in this range:
+  at every C_FN from €5 to €300 it sends 4–7 % of entries to the guard and is
+  cheaper than the model alone. In the other direction, as C_FN grows the fail
+  threshold drops (0.70 → 0.24), and **above roughly €300 per miss the band
+  is only ~7 % cheaper than a guard checking everyone** (€664 vs €714).
+- **Base rate.** At 1 % violations the thresholds move up (t\* 0.24, band
+  (0.12, 0.83]); at 10 % they move down (t\* 0.04, band (0.04, 0.24]). At 10 %
+  combined with C_FN ≥ €140, **a guard checking everyone becomes cheaper than
+  the model** (€998 vs €1,015 per 1,000). The model plus band still misses
+  ~5.7 % of violations against the guard's 5 %, and when misses are frequent
+  and very expensive that gap outweighs the saved review time.
 
 ## What a person still has to check
 
-**[TODO after training]** fill from the "Operating point" tab and
-`results.md`:
+From the "Operating point" tab and `results.md`:
 
-- Thresholds: pass if score ≤ t_low, review if t_low < score ≤ t_high, fail
-  if score > t_high (both picked on validation by searching all pairs).
-- Share sent to review → reviews per day out of 1,200 → reviews in the peak
-  hour (~600 entries) × 10 s each → guards needed in the peak hour.
-- **Is it realistic?** A guard is already posted at the turnstile, so up to
-  about half a guard-hour in the peak hour costs nothing extra in headcount.
-  Each review also holds that turnstile for ~10–15 s; if more than ~10–15 %
-  of entries are reviewed at peak, queues form. If the band sends more than
-  that, either widen the fail side (accept more false stops, €2 each) or add
-  a second turnstile lane.
-- Priced against the alternatives (per 1,000 entries, from the app):
-  *do nothing* = €2,100; *guard checks every entry* = €0.25 × 1,000 + review
-  outcomes ≈ €369 (and 600 × 10 s ≈ 1.7 guards fully busy in the peak hour); *model
-  alone at t\** = …; *model + review band* = …. **[TODO]** Which wins, and by how
-  much? Is the saving over "guard checks everything" worth the deployment risk
-  given the dataset mismatch?
+- **Thresholds** (picked on validation by searching all pairs): pass if score
+  ≤ **0.04**, review if 0.04 < score ≤ **0.70**, fail if score > 0.70.
+- **Volume on test:** **5.6 %** of entries go to review → **67 reviews per
+  day** out of 1,200 → **34 in the peak hour** (~600 entries) × 10 s ≈
+  **6 minutes of guard time in the peak hour (0.09 of a guard)**.
+- **Is it realistic?** Yes, comfortably. A guard is already posted at the
+  turnstile, so 6 minutes per peak hour costs nothing extra in headcount. 34
+  reviews spread over 600 entries is one stop every ~18 people, well below the
+  ~10–15 % at which queues would form. There is room to widen the band
+  (e.g. raise t_high) if the site wants fewer automatic stops.
+- **Outcomes per 1,000 entries (test, 3 % base rate):** 1.7 violators still
+  get through (model misses plus the 5 % the guard misses), and 7.5 compliant
+  workers are wrongly stopped. Of all violations, 94.3 % are stopped, by the
+  model or by the guard.
+- **Priced against the alternatives** (per 1,000 entries, test):
+
+  | policy | € / 1,000 entries | share reviewed | violations stopped |
+  |---|---|---|---|
+  | do nothing | 2,100 | 0 % | 0 % |
+  | guard checks every entry | 369 | 100 % | 95 % |
+  | model alone at t\* = 0.12 | 222 | 0 % | 93.5 % |
+  | **model + review band (0.04, 0.70]** | **164** | 5.6 % | 94.3 % |
+
+  **Model + review band wins**: €205 per 1,000 entries cheaper than a guard
+  checking everyone (−56 %), at almost the same safety (94.3 % vs 95 % of
+  violations stopped). It is also €58 cheaper than the model alone, because the
+  guard turns most of the doubtful frames into correct decisions. At 1,200
+  entries/day that is ≈ €250 per working day, ≈ €5,000 a month, plus a guard
+  freed from looking at 1,200 faces.
+- **Is the saving worth the deployment risk?** Not yet, on these numbers
+  alone. The test set is wide internet scenes, not turnstile frames, and the
+  single most important production failure mode (caps and hats that look like
+  helmets) is exactly the one the dataset covers worst. The saving justifies a
+  pilot, not a switch: run the model in shadow mode next to the guard first
+  (next section).
 
 ## Limitations & next steps
 
@@ -200,16 +341,27 @@ in `results.md`):
 - **C_FN is a guess built from small probabilities.** The sensitivity table
   shows how far it can move before the decision changes; the safety
   technician should sign off the figure, not the data team.
-- **Image score uses only the top `head` box.** Hats, hoods and caps that
-  resemble helmets are the risk; a dedicated "non-hard-hat headwear" class
-  would help.
+- **Image score uses only the top `head` box.** Caps, hoods and hats that
+  resemble helmets are the main risk (seen in the misses above). A dedicated
+  "non-hard-hat headwear" class, or more such examples labelled as `head`,
+  would help most.
+- **Under-trained, low-resolution model.** 20 epochs at 480 px on CPU, with
+  validation mAP still rising. Retraining on a GPU at 640 px for 40+ epochs is
+  cheap and should mostly help the small heads (which matter less at a
+  turnstile anyway).
+- **Label noise in both directions.** Unlabelled bare heads make the measured
+  false-alarm rate pessimistic; a few wrong `head` boxes make the measured
+  misses slightly pessimistic too. The turnstile pilot should use carefully
+  labelled frames.
+- **Thresholds rest on 143 violating validation images**, so they are only
+  reliable to a region, not to two decimals. Re-pick them on pilot data.
 - **Reviewer accuracy (95 %) is assumed**, and review fatigue at peak is not
   modelled.
-- **[TODO]** anything specific the per-class results show.
 
 ## Generative AI use disclosure
 
 I used Claude Code (Anthropic) to write the code (`train.py`, `decision.py`,
-`app.py`, `colab_train.ipynb`) and a first draft of this report's structure
-and cost reasoning. **[TODO: state what you changed, which assumptions you
+`app.py`, `colab_train.ipynb`), to run the training and evaluation, and for a
+first draft of this report's structure, cost reasoning and the reading of the
+results. **[TODO (student): state what you changed, which assumptions you
 checked or replaced, and confirm the analysis and conclusions are yours.]**
